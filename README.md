@@ -1,6 +1,6 @@
 # budget_shinydashboard
 
-The purpose of this dashboard is to get an overview of spending activities, keeping clear track of where the disposable income is spent and how.
+An interactive financial management tool built with *R* and *shinydashboard*. This application allows users to track expenses, visualize spending patterns, and manage personal or household budgets through a clean, intuitive interface.
 
 For the time being the dashboard includes the following three tabs:
 
