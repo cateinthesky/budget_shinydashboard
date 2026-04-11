@@ -11,6 +11,7 @@ library(tidyr)
 
 # Prepare dataset ----
 Budget_2025 <- read_excel("../mock_budget.xlsx")
+Budget_2025 <- read_excel("../Budget 2025.xlsx", sheet = "Riepilogo")
 
 Budget_2025$Data <- as.Date(paste0(as.character(Budget_2025$Anno),"/", as.character(Budget_2025$Mese_n),"/1"))
 lev <- c("Stipendio", "Buoni pasto", "Altro", "Affitto", "Elettricità", "Internet", "Cellulare", "Spesa", "Pasti fuori", "Trasporti", "Svago", "Varie")
@@ -30,8 +31,19 @@ tot_saldo <- tot %>% pivot_wider(names_from = Transazione, values_from = sum) %>
 # Compute percentages
 tot_saldo$fraction = tot_saldo$Uscite / tot_saldo$Entrate
 
+## TODO 1) in Overview: aggiungere insieme alla media dei guadagni per mese la percentuale di incremento o decremento rispetto al mese scorso
+old <- mean(tot_saldo$saldo[1:(length(tot_saldo$saldo)-1)])
+new <- mean(tot_saldo$saldo)
+var_perc <- round(((new*100)/old) - 100,2)
+switch(sign(var_perc)==1, "+", "-")
+
+## TODO 2)
+bestMonth <- tot_saldo$Data[tot_saldo$fraction == min(tot_saldo$fraction)]
+
+
+
 # header ----
-header <- dashboardHeader(title = "My Dashboard")
+header <- dashboardHeader(title = "Budget Dashboard")
 
 # sidebar ----
 sidebar <- dashboardSidebar(
@@ -54,7 +66,7 @@ body <- dashboardBody(
             fluidRow(
               column(width = 4,
                      valueBox(tot_entrate-tot_uscite, "Cumulative revenues", icon = icon("piggy-bank"), color = "green", width = NULL),
-                     valueBox((tot_entrate-tot_uscite)/(length(unique(Budget_2025$Data))), "Avg monthly revenues", icon = icon("money-bill-trend-up"), color = "yellow", width = NULL),
+                     valueBox(round((tot_entrate-tot_uscite)/(length(unique(Budget_2025$Data))),2), paste0("Avg monthly revenues \n(", switch(sign(var_perc)==1, "+", "-"), var_perc, "%)", sep = "\n"), icon = icon("money-bill-trend-up"), color = "yellow", width = NULL),
                      box(sliderInput("slider", "Select target:", 0, 2000, 1000), width = NULL, background = "black")
               ),
               
@@ -67,10 +79,11 @@ body <- dashboardBody(
             fluidRow(
               column(width = 7,
                      box(selectInput("month", "Select a month to display:", Budget_2025$Data, selected = "none"), width = NULL, background = "black"),
-                     infoBoxOutput("monthBox", width = 50)
+                     infoBoxOutput("monthBox", width = NULL)
                      
-                     
-              )
+                     ## 2) Nel pannello by month: aggiungere il mese di migliore performance                     
+              ),
+              infoBoxOutput("BestmonthBox", width=NULL)
               ,
               box(title = "% of budget spent for the selected month", plotOutput("donut")),
               box(title = "Transactions by selected month", plotOutput("bymonth"))
@@ -82,11 +95,18 @@ body <- dashboardBody(
     
     tabItem(tabName = "category",
             fluidRow(
-              box(selectInput("cat", "Select a category to display:", Budget_2025$Categoria, selected = "none"), width = NULL, background = "black"),
-              infoBoxOutput("catBox"),
-              
-              box(title = "Expenses by selected category", plotOutput("bycat"))
+              box(title = "Spesa", plotOutput("bySpesa")),
+              box(title = "Pasti fuori", plotOutput("byPastiFuori")),
+              box(title = "Trasporti", plotOutput("byTrasporti")),
+              box(title = "Varie", plotOutput("byVarie"))
             )
+            # ,
+            # fluidRow(
+            #   box(selectInput("cat", "Select a category to display:", Budget_2025$Categoria, selected = "none"), width = NULL, background = "black"),
+            #   infoBoxOutput("catBox"),
+            #   
+            #   box(title = "Expenses by selected category", plotOutput("bycat"))
+            # )
     )
   )
   
@@ -118,6 +138,7 @@ server <- function(input, output) {
       geom_text(nudge_y=50) +
       geom_hline(yintercept = input$slider, lwd = 1, lty = 3, color = "#1B9E77FF") +
       geom_hline(yintercept = mean(tot_saldo$saldo), lwd = 1, lty = 3) + 
+      scale_y_continuous(breaks = sort(c(seq(0, max(tot_saldo$saldo), length.out=7), round(mean(tot_saldo$saldo))))) +
       scale_x_date(date_labels = "%m-%Y", date_breaks = "1 month") + 
       theme(axis.text.x=element_text(color = "black", size=11, angle=30, vjust=.8, hjust=0.8)) +
       labs(y="euros", x="date")
@@ -128,6 +149,13 @@ server <- function(input, output) {
             color = "navy"
     )
   })
+  
+  output$BestmonthBox <- renderInfoBox({
+    infoBox(" The best performing month so far is ", paste(months(as.Date(bestMonth)), format(as.Date(input$month), format="%Y")), icon = icon("trophy"),
+            color = "yellow"
+    )
+  })
+  
   
   output$bymonth <- renderPlot({
     ggplot(Budget_2025%>%filter(Data==input$month)%>%
@@ -152,7 +180,59 @@ server <- function(input, output) {
       labs(y="euros", x="date") +
       scale_x_date(date_labels = "%m-%Y", date_breaks = "1 month") + 
       theme(axis.text.x=element_text(color = "black", size=11, angle=30, vjust=.8, hjust=0.8)) +
-      geom_hline(yintercept = as.integer(Budget_2025%>%filter(Categoria==input$cat)%>%summarise(mean(Valore))), lwd = 1, lty = 3)
+      geom_hline(yintercept = as.integer(Budget_2025%>%filter(Categoria==input$cat)%>%summarise(mean(Valore))), lwd = 1, lty = 3) 
+    
+  })
+  
+  output$bySpesa <- renderPlot({
+    ggplot(Budget_2025%>%filter(Categoria=="Spesa"), aes(y=Valore, x=Data, label = round(Valore))) +
+      geom_col(fill = "steelblue1") + 
+      theme(legend.position = "none") + 
+      geom_text(nudge_y=10) +
+      labs(y="euros", x="date") +
+      scale_x_date(date_labels = "%m-%Y", date_breaks = "1 month") + 
+      theme(axis.text.x=element_text(color = "black", size=11, angle=30, vjust=.8, hjust=0.8)) +
+      geom_hline(yintercept = as.integer(Budget_2025%>%filter(Categoria=="Spesa")%>%summarise(mean(Valore))), lwd = 1, lty = 3) +
+      scale_y_continuous(breaks = sort(c(seq(0, 500, length.out=7), as.integer(Budget_2025%>%filter(Categoria=="Spesa")%>%summarise(mean(Valore))))))
+    
+  })
+  
+  output$byPastiFuori <- renderPlot({
+    ggplot(Budget_2025%>%filter(Categoria=="Pasti fuori"), aes(y=Valore, x=Data, label = round(Valore))) +
+      geom_col(fill = "steelblue2") + 
+      theme(legend.position = "none") + 
+      geom_text(nudge_y=10) +
+      labs(y="euros", x="date") +
+      scale_x_date(date_labels = "%m-%Y", date_breaks = "1 month") + 
+      theme(axis.text.x=element_text(color = "black", size=11, angle=30, vjust=.8, hjust=0.8)) +
+      geom_hline(yintercept = as.integer(Budget_2025%>%filter(Categoria=="Pasti fuori")%>%summarise(mean(Valore))), lwd = 1, lty = 3) +
+      scale_y_continuous(breaks = sort(c(seq(0, 500, length.out=7), as.integer(Budget_2025%>%filter(Categoria=="Pasti fuori")%>%summarise(mean(Valore))))))
+    
+  })
+  
+  output$byTrasporti <- renderPlot({
+    ggplot(Budget_2025%>%filter(Categoria=="Trasporti"), aes(y=Valore, x=Data, label = round(Valore))) +
+      geom_col(fill = "steelblue3") + 
+      theme(legend.position = "none") + 
+      geom_text(nudge_y=10) +
+      labs(y="euros", x="date") +
+      scale_x_date(date_labels = "%m-%Y", date_breaks = "1 month") + 
+      theme(axis.text.x=element_text(color = "black", size=11, angle=30, vjust=.8, hjust=0.8)) +
+      geom_hline(yintercept = as.integer(Budget_2025%>%filter(Categoria=="Trasporti")%>%summarise(mean(Valore))), lwd = 1, lty = 3) +
+      scale_y_continuous(breaks = sort(c(seq(0, 500, length.out=7), as.integer(Budget_2025%>%filter(Categoria=="Trasporti")%>%summarise(mean(Valore))))))
+    
+  })
+  
+  output$byVarie <- renderPlot({
+    ggplot(Budget_2025%>%filter(Categoria=="Varie"), aes(y=Valore, x=Data, label = round(Valore))) +
+      geom_col(fill = "steelblue4") + 
+      theme(legend.position = "none") + 
+      geom_text(nudge_y=10) +
+      labs(y="euros", x="date") +
+      scale_x_date(date_labels = "%m-%Y", date_breaks = "1 month") + 
+      theme(axis.text.x=element_text(color = "black", size=11, angle=30, vjust=.8, hjust=0.8)) +
+      geom_hline(yintercept = as.integer(Budget_2025%>%filter(Categoria=="Varie")%>%summarise(mean(Valore))), lwd = 1, lty = 3) +
+      scale_y_continuous(breaks = sort(c(seq(0, 500, length.out=7), as.integer(Budget_2025%>%filter(Categoria=="Varie")%>%summarise(mean(Valore))))))
     
   })
   
@@ -180,4 +260,7 @@ server <- function(input, output) {
 
 shinyApp(ui, server)
 
-
+# TO DO ----
+## OK 1) in Overview: aggiungere insieme alla media dei guadagni per mese la percentuale di incremento o decremento rispetto al mese scorso
+## 2) Nel pannello by month: aggiungere il mese di migliore performance
+## 3) Nel pannello by category: lasciare fissi i grafici per Spesa, Pasti fuori, Trasporti
